@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import Config
 
+print("[INGEST] v3 loaded - direct HTTP embeddings")
 logger = logging.getLogger(__name__)
 
 
