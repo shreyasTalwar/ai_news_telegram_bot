@@ -32,7 +32,7 @@ class NewsIngester:
         self.pc = Pinecone(api_key=Config.PINECONE_API_KEY)
         self.index = self.pc.Index(Config.PINECONE_INDEX)
         self.processed_hashes: Set[str] = set()
-        logger.info("NewsIngester initialized")
+        logger.info("NewsIngester initialized (direct HTTP embeddings)")
 
     def _embed_sync(self, text: str) -> List[float]:
         """Call Google AI v1 embedding API directly over HTTP."""
@@ -47,6 +47,8 @@ class NewsIngester:
             "taskType": "RETRIEVAL_DOCUMENT",
         }
         resp = requests.post(url, json=payload, timeout=30)
+        if not resp.ok:
+            logger.error("Embed HTTP error %s: %s", resp.status_code, resp.text)
         resp.raise_for_status()
         return resp.json()["embedding"]["values"]
 
