@@ -2,10 +2,8 @@ import asyncio
 import logging
 from typing import List
 from datetime import datetime
-import os
 
 import google.generativeai as genai
-from openai import OpenAI
 from pinecone import Pinecone
 
 from models import SearchResult, RAGResponse
@@ -18,10 +16,9 @@ class RAGPipeline:
     """Retrieval-Augmented Generation pipeline."""
 
     def __init__(self):
-        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        genai.configure(api_key=Config.GEMINI_API_KEY)
         self.pc = Pinecone(api_key=Config.PINECONE_API_KEY)
         self.index = self.pc.Index(Config.PINECONE_INDEX)
-        genai.configure(api_key=Config.GEMINI_API_KEY)
         self.genai_model = genai.GenerativeModel("gemini-1.5-flash")
         self.user_context = {}
         logger.info("RAG Pipeline initialized")
@@ -29,11 +26,13 @@ class RAGPipeline:
     async def embed_with_retry(self, text: str) -> List[float]:
         for attempt in range(Config.MAX_RETRIES):
             try:
-                embedding = self.openai_client.embeddings.create(
+                result = await asyncio.to_thread(
+                    genai.embed_content,
                     model=Config.EMBEDDING_MODEL,
-                    input=text,
-                ).data[0].embedding
-                return embedding
+                    content=text,
+                    task_type="retrieval_query",
+                )
+                return result["embedding"]
             except Exception as exc:
                 if attempt == Config.MAX_RETRIES - 1:
                     logger.error("Failed to embed after retries: %s", exc)

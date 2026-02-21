@@ -11,9 +11,9 @@ class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 
-    # Embedding Model (OpenAI)
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
-    EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION", "3072"))
+    # Embedding Model (Google)
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "models/text-embedding-004")
+    EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION", "768"))
 
     # Chunking Strategy
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
@@ -36,7 +36,7 @@ class Config:
 
     @staticmethod
     def validate():
-        required = ["TELEGRAM_TOKEN", "PINECONE_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"]
+        required = ["TELEGRAM_TOKEN", "PINECONE_API_KEY", "GEMINI_API_KEY"]
         missing = [k for k in required if not getattr(Config, k)]
         if missing:
             raise ValueError(f"Missing required env vars: {missing}")

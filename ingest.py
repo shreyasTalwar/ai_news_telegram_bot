@@ -4,9 +4,8 @@ import logging
 from datetime import datetime
 from typing import List, Set
 import hashlib
-import os
 
-from openai import OpenAI
+import google.generativeai as genai
 from pinecone import Pinecone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -30,7 +29,7 @@ class NewsIngester:
     ]
 
     def __init__(self):
-        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        genai.configure(api_key=Config.GEMINI_API_KEY)
         self.pc = Pinecone(api_key=Config.PINECONE_API_KEY)
         self.index = self.pc.Index(Config.PINECONE_INDEX)
         self.processed_hashes: Set[str] = set()
@@ -106,10 +105,13 @@ class NewsIngester:
             chunks = self.chunk_text(article["content"])
 
             for chunk_idx, chunk in enumerate(chunks):
-                embedding = self.openai_client.embeddings.create(
+                result = await asyncio.to_thread(
+                    genai.embed_content,
                     model=Config.EMBEDDING_MODEL,
-                    input=chunk,
-                ).data[0].embedding
+                    content=chunk,
+                    task_type="retrieval_document",
+                )
+                embedding = result["embedding"]
                 chunk_id = f"{content_hash}_{chunk_idx}"
                 metadata = {
                     "source_url": article["source_url"],
