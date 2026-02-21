@@ -3,6 +3,7 @@ import logging
 from typing import List
 from datetime import datetime
 
+import requests
 import google.generativeai as genai
 from pinecone import Pinecone
 
@@ -23,16 +24,26 @@ class RAGPipeline:
         self.user_context = {}
         logger.info("RAG Pipeline initialized")
 
+    def _embed_sync(self, text: str) -> List[float]:
+        """Call Google AI v1 embedding API directly over HTTP."""
+        model_id = Config.EMBEDDING_MODEL.replace("models/", "")
+        url = (
+            f"https://generativelanguage.googleapis.com/v1/models/"
+            f"{model_id}:embedContent?key={Config.GEMINI_API_KEY}"
+        )
+        payload = {
+            "model": Config.EMBEDDING_MODEL,
+            "content": {"parts": [{"text": text}]},
+            "taskType": "RETRIEVAL_QUERY",
+        }
+        resp = requests.post(url, json=payload, timeout=30)
+        resp.raise_for_status()
+        return resp.json()["embedding"]["values"]
+
     async def embed_with_retry(self, text: str) -> List[float]:
         for attempt in range(Config.MAX_RETRIES):
             try:
-                result = await asyncio.to_thread(
-                    genai.embed_content,
-                    model=Config.EMBEDDING_MODEL,
-                    content=text,
-                    task_type="retrieval_query",
-                )
-                return result["embedding"]
+                return await asyncio.to_thread(self._embed_sync, text)
             except Exception as exc:
                 if attempt == Config.MAX_RETRIES - 1:
                     logger.error("Failed to embed after retries: %s", exc)

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Set
 import hashlib
 
-import google.generativeai as genai
+import requests
 from pinecone import Pinecone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -29,11 +29,26 @@ class NewsIngester:
     ]
 
     def __init__(self):
-        genai.configure(api_key=Config.GEMINI_API_KEY)
         self.pc = Pinecone(api_key=Config.PINECONE_API_KEY)
         self.index = self.pc.Index(Config.PINECONE_INDEX)
         self.processed_hashes: Set[str] = set()
         logger.info("NewsIngester initialized")
+
+    def _embed_sync(self, text: str) -> List[float]:
+        """Call Google AI v1 embedding API directly over HTTP."""
+        model_id = Config.EMBEDDING_MODEL.replace("models/", "")
+        url = (
+            f"https://generativelanguage.googleapis.com/v1/models/"
+            f"{model_id}:embedContent?key={Config.GEMINI_API_KEY}"
+        )
+        payload = {
+            "model": Config.EMBEDDING_MODEL,
+            "content": {"parts": [{"text": text}]},
+            "taskType": "RETRIEVAL_DOCUMENT",
+        }
+        resp = requests.post(url, json=payload, timeout=30)
+        resp.raise_for_status()
+        return resp.json()["embedding"]["values"]
 
     async def fetch_rss_feeds(self) -> List[dict]:
         articles = []
@@ -105,13 +120,7 @@ class NewsIngester:
             chunks = self.chunk_text(article["content"])
 
             for chunk_idx, chunk in enumerate(chunks):
-                result = await asyncio.to_thread(
-                    genai.embed_content,
-                    model=Config.EMBEDDING_MODEL,
-                    content=chunk,
-                    task_type="retrieval_document",
-                )
-                embedding = result["embedding"]
+                embedding = await asyncio.to_thread(self._embed_sync, chunk)
                 chunk_id = f"{content_hash}_{chunk_idx}"
                 metadata = {
                     "source_url": article["source_url"],
