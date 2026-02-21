@@ -147,7 +147,7 @@ def start_scheduler(loop: asyncio.AbstractEventLoop) -> AsyncIOScheduler:
     ingester = NewsIngester()
     scheduler = AsyncIOScheduler(event_loop=loop)
     scheduler.add_job(
-        lambda: asyncio.create_task(ingester.run_ingest()),
+        ingester.run_ingest,
         "interval",
         hours=Config.INGEST_INTERVAL_HOURS,
         next_run_time=datetime.now(),
