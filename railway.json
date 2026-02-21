@@ -1,0 +1,10 @@
+{
+  "build": {
+    "builder": "nixpacks"
+  },
+  "deploy": {
+    "startCommand": "python main.py",
+    "numReplicas": 1,
+    "restartPolicyType": "on_failure"
+  }
+}
