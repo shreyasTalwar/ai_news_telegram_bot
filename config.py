@@ -11,9 +11,9 @@ class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 
-    # Embedding Model (Google)
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "models/text-embedding-004")
-    EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION", "768"))
+    # Embedding Model (Google) — hardcoded, do not override via env
+    EMBEDDING_MODEL: str = "models/text-embedding-004"
+    EMBEDDING_DIMENSION: int = 768
 
     # Chunking Strategy
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
