@@ -3,7 +3,7 @@
     "builder": "nixpacks"
   },
   "deploy": {
-    "startCommand": "python main.py",
+    "startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT",
     "numReplicas": 1,
     "restartPolicyType": "on_failure"
   }
