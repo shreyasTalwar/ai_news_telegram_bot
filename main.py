@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI
@@ -21,22 +22,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 Config.validate()
-app = FastAPI()
-rag_pipeline = RAGPipeline()
-bot = Bot(token=Config.TELEGRAM_TOKEN)
 
 request_queue = asyncio.Queue(maxsize=Config.QUEUE_MAX_SIZE)
 user_last_request = {}
 
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("Starting bot")
-
     start_scheduler(asyncio.get_event_loop())
     asyncio.create_task(process_request_queue())
-
     logger.info("Bot started successfully")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+rag_pipeline = RAGPipeline()
+bot = Bot(token=Config.TELEGRAM_TOKEN)
 
 
 @app.get("/health")
