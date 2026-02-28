@@ -21,6 +21,13 @@ def init_db():
                 timestamp DATETIME
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                user_id INTEGER,
+                topic TEXT,
+                PRIMARY KEY (user_id, topic)
+            )
+        """)
         conn.commit()
         logger.info("Database initialized successfully at %s", DB_PATH)
 
@@ -63,3 +70,34 @@ def clear_chat_history(user_id: int):
             conn.commit()
     except Exception as e:
         logger.error("Failed to clear chat history for user %s: %s", user_id, e)
+
+def save_subscription(user_id: int, topic: str):
+    """Save a user topic subscription."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO subscriptions (user_id, topic) VALUES (?, ?)", (user_id, topic))
+            conn.commit()
+    except Exception as e:
+        logger.error("Failed to save subscription for user %s: %s", user_id, e)
+
+def get_subscriptions() -> List[tuple]:
+    """Get all user subscriptions."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT user_id, topic FROM subscriptions")
+            return cursor.fetchall()
+    except Exception as e:
+        logger.error("Failed to fetch all subscriptions: %s", e)
+        return []
+
+def remove_subscription(user_id: int, topic: str):
+    """Remove a specific topic subscription for a user."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM subscriptions WHERE user_id = ? AND topic = ?", (user_id, topic))
+            conn.commit()
+    except Exception as e:
+        logger.error("Failed to remove subscription for user %s: %s", user_id, e)

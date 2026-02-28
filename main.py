@@ -14,7 +14,7 @@ load_dotenv()
 from config import Config
 from rag import RAGPipeline
 from ingest import start_scheduler
-from database import init_db
+from database import init_db, save_subscription, get_subscriptions, remove_subscription
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +26,32 @@ Config.validate()
 
 request_queue = asyncio.Queue(maxsize=Config.QUEUE_MAX_SIZE)
 user_last_request = {}
+
+
+async def send_proactive_alerts():
+    """Check all user subscriptions and send matching AI news alerts."""
+    logger.info("Checking for proactive news alerts...")
+    subs = get_subscriptions()
+    if not subs:
+        logger.info("No active subscriptions found.")
+        return
+
+    for user_id, topic in subs:
+        try:
+            logger.info("Processing alert for user %s on topic: %s", user_id, topic)
+            # Use RAG to find news for this specific topic
+            response = await rag_pipeline.answer_question(user_id, f"What is the latest news regarding {topic}?")
+            
+            if response.confidence > 0.4:  # Threshold for alerts
+                text = (
+                    f"🔔 **AI News Alert: {topic}**\n\n"
+                    f"{response.answer}\n\n"
+                    "I'll keep watching for more updates!"
+                )
+                await bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
+                logger.info("Alert sent to user %s", user_id)
+        except Exception as e:
+            logger.error("Failed to send alert to user %s: %s", user_id, e)
 
 
 @asynccontextmanager
@@ -46,7 +72,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("WEBHOOK_URL is not set. Bot will NOT receive messages from Telegram.")
         
-    start_scheduler(asyncio.get_event_loop())
+    start_scheduler(asyncio.get_event_loop(), on_complete_callback=send_proactive_alerts)
     asyncio.create_task(process_request_queue())
     logger.info("Bot started successfully")
     yield
@@ -147,7 +173,23 @@ async def handle_telegram_update(user_id: int, update: Update):
             return
 
         if message_text.startswith("/"):
-            # Other commands could be handled here
+            if message_text.startswith("/subscribe"):
+                topic = message_text.replace("/subscribe", "").strip()
+                if not topic:
+                    await bot.send_message(chat_id=user_id, text="Use `/subscribe <topic>` to get daily updates.", parse_mode="Markdown")
+                    return
+                save_subscription(user_id, topic)
+                await bot.send_message(chat_id=user_id, text=f"✅ Subscribed to **{topic}**!", parse_mode="Markdown")
+                return
+            
+            if message_text.startswith("/unsubscribe"):
+                topic = message_text.replace("/unsubscribe", "").strip()
+                if not topic:
+                    await bot.send_message(chat_id=user_id, text="Use `/unsubscribe <topic>` to stop alerts.")
+                    return
+                remove_subscription(user_id, topic)
+                await bot.send_message(chat_id=user_id, text=f"❌ Unsubscribed from **{topic}**.")
+                return
             return
 
         await bot.send_chat_action(chat_id=user_id, action="typing")

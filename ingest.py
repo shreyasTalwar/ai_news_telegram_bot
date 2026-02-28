@@ -168,7 +168,7 @@ class NewsIngester:
             except Exception as exc:
                 logger.error("Failed to upsert to Pinecone: %s", exc)
 
-    async def run_ingest(self):
+    async def run_ingest(self, on_complete_callback=None):
         try:
             logger.info("Starting ingestion cycle")
             articles = await self.fetch_rss_feeds()
@@ -186,11 +186,15 @@ class NewsIngester:
                 
             await self.ingest_articles(processed_articles)
             logger.info("Ingestion complete (Deep Scraping applied)")
+            
+            if on_complete_callback:
+                logger.info("Triggering post-ingestion callback")
+                await on_complete_callback()
         except Exception as exc:
             logger.error("Ingestion failed: %s", exc)
 
 
-def start_scheduler(loop: asyncio.AbstractEventLoop) -> AsyncIOScheduler:
+def start_scheduler(loop: asyncio.AbstractEventLoop, on_complete_callback=None) -> AsyncIOScheduler:
     ingester = NewsIngester()
     scheduler = AsyncIOScheduler(event_loop=loop)
     
@@ -200,6 +204,7 @@ def start_scheduler(loop: asyncio.AbstractEventLoop) -> AsyncIOScheduler:
         "cron",
         hour=8,
         minute=0,
+        args=[on_complete_callback],
         id="news_ingestion_morning",
         replace_existing=True,
     )
@@ -209,6 +214,7 @@ def start_scheduler(loop: asyncio.AbstractEventLoop) -> AsyncIOScheduler:
         ingester.run_ingest,
         "date",
         run_date=datetime.now(),
+        args=[on_complete_callback],
         id="news_ingestion_startup",
     )
     
