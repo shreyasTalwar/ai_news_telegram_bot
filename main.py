@@ -116,20 +116,30 @@ async def telegram_webhook(request_data: dict):
 async def handle_telegram_update(user_id: int, update: Update):
     try:
         message_text = update.message.text.strip()
+        message_lower = message_text.lower()
+
+        # Handle greetings and start command
+        greetings = ["hi", "hello", "hey", "/start"]
+        if message_lower in greetings:
+            await bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "Hello! I am your AI News Bot. 🤖\n\n"
+                    "I search through the latest articles from Bloomberg, Reuters, TechCrunch, and more to keep you updated.\n\n"
+                    "What would you like to know about today?\n\n"
+                    "Try one of these categories:\n"
+                    "🔹 **LLMs & GenAI**\n"
+                    "🔹 **AI Regulations & Ethics**\n"
+                    "🔹 **Market Trends**\n"
+                    "🔹 **Hardware & Chips (NVIDIA, etc.)**\n\n"
+                    "Just ask a question and I'll find the answer for you!"
+                ),
+                parse_mode="Markdown"
+            )
+            return
 
         if message_text.startswith("/"):
-            if message_text == "/start":
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=(
-                        "Welcome to AI News Bot.\n\n"
-                        "Ask me anything about AI news and I'll search recent articles to answer.\n\n"
-                        "Examples:\n"
-                        "- What's new in LLMs?\n"
-                        "- Latest AI regulations\n"
-                        "- Breakthroughs in computer vision"
-                    ),
-                )
+            # Other commands could be handled here
             return
 
         await bot.send_chat_action(chat_id=user_id, action="typing")
