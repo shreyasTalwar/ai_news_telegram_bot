@@ -10,6 +10,7 @@ from pinecone import Pinecone
 
 from models import SearchResult, RAGResponse
 from config import Config
+from database import get_chat_history, save_message
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,6 @@ class RAGPipeline:
         
         # Using Gemini 1.5 Flash - it's stable and fast
         self.generation_model_id = "gemini-1.5-flash"
-        self.user_context = {}
         logger.info("RAG Pipeline initialized using %s", self.generation_model_id)
 
     def _embed_sync(self, text: str) -> List[float]:
@@ -163,8 +163,9 @@ class RAGPipeline:
                 ]
             )
 
-            user_history = self.user_context.get(user_id, [])
-            history_text = "\n".join(user_history[-3:]) if user_history else ""
+            # Retrieve persistent chat history
+            user_history = get_chat_history(user_id, limit=Config.CONTEXT_WINDOW)
+            history_text = "\n".join(user_history) if user_history else ""
 
             prompt = (
                 "You are an expert AI news analyst. Your task is to provide a comprehensive yet concise summary of the latest AI news based on the context provided below.\n\n"
@@ -180,11 +181,9 @@ class RAGPipeline:
 
             answer = await self.generate_with_retry(prompt)
 
-            self.user_context.setdefault(user_id, []).append(f"Q: {question}")
-            self.user_context.setdefault(user_id, []).append(f"A: {answer}")
-
-            if len(self.user_context[user_id]) > Config.CONTEXT_WINDOW * 2:
-                self.user_context[user_id] = self.user_context[user_id][-(Config.CONTEXT_WINDOW * 2) :]
+            # Persist chat history to database
+            save_message(user_id, "user", question)
+            save_message(user_id, "assistant", answer)
 
             avg_similarity = sum(r.similarity_score for r in search_results) / len(search_results)
 

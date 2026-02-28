@@ -14,6 +14,7 @@ load_dotenv()
 from config import Config
 from rag import RAGPipeline
 from ingest import start_scheduler
+from database import init_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +31,9 @@ user_last_request = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting bot")
+    
+    # Initialize Persistent Chat History DB
+    init_db()
     
     if Config.WEBHOOK_URL:
         webhook_url = f"{Config.WEBHOOK_URL.rstrip('/')}/webhook"

@@ -35,6 +35,14 @@ class UserContext(BaseModel):
     embedding: Optional[List[float]] = None
 
 
+class ChatMessage(BaseModel):
+    """A single message in the chat history."""
+    user_id: int
+    role: str  # 'user' or 'assistant'
+    content: str
+    timestamp: datetime = datetime.now()
+
+
 class RAGResponse(BaseModel):
     """Response from RAG pipeline."""
 
