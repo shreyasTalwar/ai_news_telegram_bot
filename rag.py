@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import json
 from typing import List
 from datetime import datetime
 
@@ -21,23 +22,13 @@ class RAGPipeline:
         self.pc = Pinecone(api_key=Config.PINECONE_API_KEY)
         self.index = self.pc.Index(Config.PINECONE_INDEX)
         
-        # Relax safety settings for news content
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
-        ]
-        
-        self.genai_model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            safety_settings=safety_settings
-        )
+        # Using Gemini 2.5 Flash for generation
+        self.generation_model_id = "gemini-2.5-flash"
         self.user_context = {}
-        logger.info("RAG Pipeline initialized with relaxed safety settings")
+        logger.info("RAG Pipeline initialized using %s", self.generation_model_id)
 
     def _embed_sync(self, text: str) -> List[float]:
-        """Call Google AI v1 embedding API directly over HTTP."""
+        """Call Google AI v1beta embedding API directly over HTTP."""
         model_id = Config.EMBEDDING_MODEL.replace("models/", "")
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -74,7 +65,7 @@ class RAGPipeline:
 
             search_results = []
             for match in results.matches:
-                if match.score < 0.5:
+                if match.score < 0.3:  # Slightly lower threshold to get more context
                     continue
 
                 metadata = match.metadata or {}
@@ -94,19 +85,46 @@ class RAGPipeline:
             logger.error("Pinecone search failed: %s", exc)
             return []
 
+    def _generate_sync(self, prompt: str) -> str:
+        """Call Google AI v1beta generation API directly over HTTP."""
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.generation_model_id}:generateContent?key={Config.GEMINI_API_KEY}"
+        )
+        
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "safetySettings": [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+        }
+        
+        resp = requests.post(url, json=payload, timeout=60)
+        if not resp.ok:
+            logger.error("Generation HTTP error %s: %s", resp.status_code, resp.text)
+            resp.raise_for_status()
+            
+        data = resp.json()
+        
+        if "candidates" not in data or not data["candidates"]:
+            if "promptFeedback" in data:
+                logger.warning("Prompt feedback blocked: %s", data["promptFeedback"])
+            return "I'm sorry, I couldn't generate a summary from those news articles."
+            
+        candidate = data["candidates"][0]
+        if "content" not in candidate or "parts" not in candidate["content"]:
+            logger.warning("No content in response candidate: %s", candidate)
+            return "I'm sorry, I couldn't generate a summary from those news articles."
+            
+        return candidate["content"]["parts"][0]["text"]
+
     async def generate_with_retry(self, prompt: str) -> str:
         for attempt in range(Config.MAX_RETRIES):
             try:
-                response = await asyncio.to_thread(self.genai_model.generate_content, prompt)
-                
-                # Check for blocked responses
-                if not response.candidates or not response.candidates[0].content.parts:
-                    logger.warning("Generation blocked or empty for attempt %d", attempt + 1)
-                    if response.prompt_feedback:
-                        logger.warning("Prompt feedback: %s", response.prompt_feedback)
-                    continue
-                    
-                return response.text
+                return await asyncio.to_thread(self._generate_sync, prompt)
             except Exception as exc:
                 logger.error("Generation error on attempt %d: %s", attempt + 1, str(exc))
                 if attempt == Config.MAX_RETRIES - 1:
