@@ -98,14 +98,21 @@ class RAGPipeline:
         for attempt in range(Config.MAX_RETRIES):
             try:
                 response = await asyncio.to_thread(self.genai_model.generate_content, prompt)
+                
+                # Check for blocked responses
+                if not response.candidates or not response.candidates[0].content.parts:
+                    logger.warning("Generation blocked or empty for attempt %d", attempt + 1)
+                    if response.prompt_feedback:
+                        logger.warning("Prompt feedback: %s", response.prompt_feedback)
+                    continue
+                    
                 return response.text
             except Exception as exc:
+                logger.error("Generation error on attempt %d: %s", attempt + 1, str(exc))
                 if attempt == Config.MAX_RETRIES - 1:
-                    logger.error("Generation failed after retries: %s", exc)
                     return "I'm having trouble generating a response. Please try again in a moment."
 
                 backoff = Config.INITIAL_BACKOFF_SECONDS * (2**attempt)
-                logger.warning("Generation retry %d/%d after %.1fs", attempt + 1, Config.MAX_RETRIES, backoff)
                 await asyncio.sleep(backoff)
 
     async def answer_question(self, user_id: int, question: str) -> RAGResponse:
@@ -135,12 +142,16 @@ class RAGPipeline:
             history_text = "\n".join(user_history[-3:]) if user_history else ""
 
             prompt = (
-                "You are an AI news expert. Answer the user's question based on the provided news context.\n"
-                "Be concise (2-3 sentences). If the context doesn't fully answer, say so.\n\n"
-                f"CONTEXT:\n{context}\n\n"
+                "You are an expert AI news analyst. Your task is to provide a comprehensive yet concise summary of the latest AI news based on the context provided below.\n\n"
+                "GUIDELINES:\n"
+                "1. Summarize the key points from the provided news snippets.\n"
+                "2. Focus on answering the user's specific question directly.\n"
+                "3. Use a professional and informative tone.\n"
+                "4. If the context does not contain enough information, provide a general summary of what IS available and mention the limitation.\n\n"
+                f"NEWS CONTEXT:\n{context}\n\n"
                 f"CONVERSATION HISTORY:\n{history_text}\n\n"
                 f"USER QUESTION:\n{question}\n\n"
-                "ANSWER:"
+                "SUMMARY:"
             )
 
             answer = await self.generate_with_retry(prompt)
