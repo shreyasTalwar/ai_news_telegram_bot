@@ -160,14 +160,25 @@ class NewsIngester:
 def start_scheduler(loop: asyncio.AbstractEventLoop) -> AsyncIOScheduler:
     ingester = NewsIngester()
     scheduler = AsyncIOScheduler(event_loop=loop)
+    
+    # Run every morning at 8:00 AM
     scheduler.add_job(
         ingester.run_ingest,
-        "interval",
-        hours=Config.INGEST_INTERVAL_HOURS,
-        next_run_time=datetime.now(),
-        id="news_ingestion",
+        "cron",
+        hour=8,
+        minute=0,
+        id="news_ingestion_morning",
         replace_existing=True,
     )
+    
+    # Also run once immediately on startup
+    scheduler.add_job(
+        ingester.run_ingest,
+        "date",
+        run_date=datetime.now(),
+        id="news_ingestion_startup",
+    )
+    
     scheduler.start()
-    logger.info("Scheduler started (every %d hours)", Config.INGEST_INTERVAL_HOURS)
+    logger.info("Scheduler started (Daily at 8:00 AM + Startup run)")
     return scheduler
