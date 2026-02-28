@@ -26,6 +26,15 @@ class SearchResult(BaseModel):
     published_date: Optional[str] = None
 
 
+from enum import Enum
+
+class Intent(str, Enum):
+    GREETING = "greeting"
+    NEWS_QUERY = "news_query"
+    SUBSCRIPTION = "subscription"
+    GENERAL_CHAT = "general_chat"
+    UNKNOWN = "unknown"
+
 class UserContext(BaseModel):
     """Store user conversation context."""
 

@@ -8,7 +8,7 @@ import requests
 import google.generativeai as genai
 from pinecone import Pinecone
 
-from models import SearchResult, RAGResponse
+from models import SearchResult, RAGResponse, Intent
 from config import Config
 from database import get_chat_history, save_message
 
@@ -26,6 +26,27 @@ class RAGPipeline:
         # Using Gemini 1.5 Flash - it's stable and fast
         self.generation_model_id = "gemini-1.5-flash"
         logger.info("RAG Pipeline initialized using %s", self.generation_model_id)
+
+    async def classify_intent(self, text: str) -> Intent:
+        """Classify user intent using a fast LLM call."""
+        try:
+            prompt = (
+                "You are an intent classifier. Classify the user's message into EXACTLY one category: "
+                "GREETING, NEWS_QUERY, SUBSCRIPTION, GENERAL_CHAT, UNKNOWN.\n\n"
+                f"MESSAGE: \"{text}\"\n\n"
+                "CATEGORY:"
+            )
+            # Use direct generation for fast classification
+            category = await self.generate_with_retry(prompt)
+            category = category.strip().upper()
+            
+            for intent in Intent:
+                if intent.value.upper() in category:
+                    return intent
+            return Intent.UNKNOWN
+        except Exception as e:
+            logger.error("Intent classification failed: %s", e)
+            return Intent.NEWS_QUERY  # Default for safety
 
     def _embed_sync(self, text: str) -> List[float]:
         """Call Google AI v1beta embedding API directly over HTTP."""
@@ -143,36 +164,72 @@ class RAGPipeline:
     async def answer_question(self, user_id: int, question: str) -> RAGResponse:
         try:
             query_embedding = await self.embed_with_retry(question)
-            search_results = await self.search_pinecone(query_embedding, user_id)
-
-            if not search_results:
-                return RAGResponse(
-                    answer=(
-                        "I couldn't find relevant AI news about that topic. "
-                        "Try asking about recent AI announcements or specific companies."
-                    ),
-                    sources=[],
-                    confidence=0.0,
-                    timestamp=datetime.now(),
-                )
-
-            context = "\n\n".join(
-                [
-                    f"Source: {r.source_name}\nDate: {r.published_date}\n{r.chunk_text}"
-                    for r in search_results
-                ]
+            
+            # 1. INITIAL RETRIEVAL: Fetch 15 chunks (instead of 5)
+            results = self.index.query(
+                vector=query_embedding,
+                top_k=15,
+                include_metadata=True,
             )
 
-            # Retrieve persistent chat history
+            # 2. FILTER & FORMAT: Prepare chunks for re-ranking
+            initial_chunks = []
+            for match in results.matches:
+                metadata = match.metadata or {}
+                initial_chunks.append({
+                    "id": match.id,
+                    "text": metadata.get("chunk_text", ""),
+                    "source": metadata.get("source_name", ""),
+                    "url": metadata.get("source_url", ""),
+                    "date": metadata.get("published_date", ""),
+                    "score": match.score
+                })
+
+            if not initial_chunks:
+                return RAGResponse(answer="I couldn't find any news about that topic.", sources=[], confidence=0.0, timestamp=datetime.now())
+
+            # 3. LLM RE-RANKING: Use Gemini to pick the top 5 most relevant chunks
+            rerank_prompt = (
+                f"Question: {question}\n\n"
+                "I have found 15 potential news snippets. Rate each one from 0 to 10 based on how relevant it is to the question. "
+                "Output ONLY a JSON list of the top 5 indices (0-14) that best answer the question.\n\n"
+                "SNIPPETS:\n"
+            )
+            for i, chunk in enumerate(initial_chunks):
+                rerank_prompt += f"[{i}] {chunk['text'][:200]}...\n"
+
+            rerank_resp = await self.generate_with_retry(rerank_prompt)
+            
+            # Parse top indices (fallback to first 5 if parsing fails)
+            try:
+                import re
+                top_indices = [int(i) for i in re.findall(r'\d+', rerank_resp)][:5]
+            except:
+                top_indices = list(range(min(5, len(initial_chunks))))
+
+            # 4. FINAL SELECTION: Pick the re-ranked top 5
+            search_results = []
+            for idx in top_indices:
+                if idx < len(initial_chunks):
+                    c = initial_chunks[idx]
+                    search_results.append(SearchResult(
+                        chunk_text=c["text"],
+                        source_url=c["url"],
+                        source_name=c["source"],
+                        similarity_score=c["score"],
+                        published_date=c["date"]
+                    ))
+
+            # 5. GENERATE FINAL SUMMARY (Same as before but with better data)
+            context = "\n\n".join(
+                [f"Source: {r.source_name}\nDate: {r.published_date}\n{r.chunk_text}" for r in search_results]
+            )
+
             user_history = get_chat_history(user_id, limit=Config.CONTEXT_WINDOW)
             history_text = "\n".join(user_history) if user_history else ""
 
             prompt = (
-                "You are an expert AI news analyst. Your task is to provide a comprehensive yet concise summary of the latest AI news based on the context provided below.\n\n"
-                "GUIDELINES:\n"
-                "1. Summarize the key points from the provided news snippets.\n"
-                "2. Focus on answering the user's specific question directly.\n"
-                "3. Use a professional and informative tone.\n\n"
+                "You are an expert AI news analyst. Summarize the latest news based on the context.\n\n"
                 f"NEWS CONTEXT:\n{context}\n\n"
                 f"CONVERSATION HISTORY:\n{history_text}\n\n"
                 f"USER QUESTION:\n{question}\n\n"
@@ -180,25 +237,16 @@ class RAGPipeline:
             )
 
             answer = await self.generate_with_retry(prompt)
-
-            # Persist chat history to database
             save_message(user_id, "user", question)
             save_message(user_id, "assistant", answer)
-
-            avg_similarity = sum(r.similarity_score for r in search_results) / len(search_results)
 
             return RAGResponse(
                 answer=answer,
                 sources=search_results,
-                confidence=avg_similarity,
+                confidence=sum(r.similarity_score for r in search_results) / len(search_results),
                 timestamp=datetime.now(),
             )
 
         except Exception as exc:
             logger.error("RAG pipeline error: %s", exc)
-            return RAGResponse(
-                answer="Something went wrong. Please try again.",
-                sources=[],
-                confidence=0.0,
-                timestamp=datetime.now(),
-            )
+            return RAGResponse(answer="Something went wrong.", sources=[], confidence=0.0, timestamp=datetime.now())

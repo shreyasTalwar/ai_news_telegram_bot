@@ -122,9 +122,13 @@ async def handle_telegram_update(user_id: int, update: Update):
         message_text = update.message.text.strip()
         message_lower = message_text.lower()
 
+        # New Agentic Routing Step
+        intent = await rag_pipeline.classify_intent(message_text)
+        logger.info("[User %s] Intent detected: %s", user_id, intent)
+
         # Handle greetings and start command
         greetings = ["hi", "hello", "hey", "/start"]
-        if message_lower in greetings:
+        if intent == "GREETING" or message_lower in greetings:
             await bot.send_message(
                 chat_id=user_id,
                 text=(
