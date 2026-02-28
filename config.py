@@ -6,6 +6,7 @@ class Config:
 
     # API Keys
     TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "")
+    WEBHOOK_URL: str = os.getenv("WEBHOOK_URL", "")
     PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
     PINECONE_INDEX: str = os.getenv("PINECONE_INDEX", "ai-news")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
@@ -36,7 +37,7 @@ class Config:
 
     @staticmethod
     def validate():
-        required = ["TELEGRAM_TOKEN", "PINECONE_API_KEY", "GEMINI_API_KEY"]
+        required = ["TELEGRAM_TOKEN", "WEBHOOK_URL", "PINECONE_API_KEY", "GEMINI_API_KEY"]
         missing = [k for k in required if not getattr(Config, k)]
         if missing:
             raise ValueError(f"Missing required env vars: {missing}")

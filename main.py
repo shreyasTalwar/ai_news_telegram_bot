@@ -30,6 +30,17 @@ user_last_request = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting bot")
+    
+    webhook_url = f"{Config.WEBHOOK_URL.rstrip('/')}/webhook"
+    logger.info("Setting webhook to: %s", webhook_url)
+    
+    try:
+        await bot.set_webhook(url=webhook_url)
+        logger.info("Webhook set successfully")
+    except TelegramError as e:
+        logger.error("Failed to set webhook: %s", e)
+        raise e
+        
     start_scheduler(asyncio.get_event_loop())
     asyncio.create_task(process_request_queue())
     logger.info("Bot started successfully")

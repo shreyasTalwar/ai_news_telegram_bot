@@ -28,7 +28,7 @@ class RAGPipeline:
         """Call Google AI v1 embedding API directly over HTTP."""
         model_id = Config.EMBEDDING_MODEL.replace("models/", "")
         url = (
-            f"https://generativelanguage.googleapis.com/v1/models/"
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{model_id}:embedContent?key={Config.GEMINI_API_KEY}"
         )
         payload = {
