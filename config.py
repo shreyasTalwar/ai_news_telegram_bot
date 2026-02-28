@@ -37,7 +37,7 @@ class Config:
 
     @staticmethod
     def validate():
-        required = ["TELEGRAM_TOKEN", "WEBHOOK_URL", "PINECONE_API_KEY", "GEMINI_API_KEY"]
+        required = ["TELEGRAM_TOKEN", "PINECONE_API_KEY", "GEMINI_API_KEY"]
         missing = [k for k in required if not getattr(Config, k)]
         if missing:
             raise ValueError(f"Missing required env vars: {missing}")
