@@ -53,6 +53,27 @@ class NewsIngester:
         resp.raise_for_status()
         return resp.json()["embedding"]["values"]
 
+    async def fetch_full_content(self, url: str) -> str:
+        """Fetch the full text of an article using the Jina Reader API."""
+        try:
+            # Jina Reader turns any URL into clean Markdown for LLMs
+            jina_url = f"https://r.jina.ai/{url}"
+            headers = {
+                "X-Return-Format": "markdown",
+                "Accept": "text/event-stream",
+            }
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(jina_url, headers=headers, timeout=30)
+                if resp.status_code == 200:
+                    content = resp.text.strip()
+                    # If content is too short, fall back to the RSS summary
+                    if len(content) > 100:
+                        return content
+            return ""
+        except Exception as e:
+            logger.warning("Failed to fetch full content for %s: %s", url, e)
+            return ""
+
     async def fetch_rss_feeds(self) -> List[dict]:
         articles = []
         feed_urls = self.RSS_FEEDS + self.YOUTUBE_CHANNELS
@@ -151,8 +172,20 @@ class NewsIngester:
         try:
             logger.info("Starting ingestion cycle")
             articles = await self.fetch_rss_feeds()
-            await self.ingest_articles(articles)
-            logger.info("Ingestion complete")
+            
+            # Deeper ingestion: Scrape full content for each article
+            processed_articles = []
+            logger.info("Deep scraping %d articles...", len(articles))
+            
+            for article in articles:
+                full_content = await self.fetch_full_content(article["source_url"])
+                if full_content:
+                    article["content"] = full_content
+                    logger.debug("Successfully scraped full content for: %s", article["title"])
+                processed_articles.append(article)
+                
+            await self.ingest_articles(processed_articles)
+            logger.info("Ingestion complete (Deep Scraping applied)")
         except Exception as exc:
             logger.error("Ingestion failed: %s", exc)
 
