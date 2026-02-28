@@ -20,9 +20,21 @@ class RAGPipeline:
         genai.configure(api_key=Config.GEMINI_API_KEY)
         self.pc = Pinecone(api_key=Config.PINECONE_API_KEY)
         self.index = self.pc.Index(Config.PINECONE_INDEX)
-        self.genai_model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        # Relax safety settings for news content
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+        ]
+        
+        self.genai_model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            safety_settings=safety_settings
+        )
         self.user_context = {}
-        logger.info("RAG Pipeline initialized")
+        logger.info("RAG Pipeline initialized with relaxed safety settings")
 
     def _embed_sync(self, text: str) -> List[float]:
         """Call Google AI v1 embedding API directly over HTTP."""
