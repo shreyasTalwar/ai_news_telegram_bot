@@ -137,33 +137,50 @@ class NewsIngester:
         for article in articles:
             content_hash = self._hash_content(article["content"])
 
-            if content_hash in self.processed_hashes:
-                logger.info("Skipping duplicate: %s", article["title"][:50])
-                continue
+            # SMARTER CHECK: Look for this hash in Pinecone before embedding anything
+            try:
+                # Check if we already have this article by querying its first chunk ID
+                first_chunk_id = f"{content_hash}_0"
+                res = self.index.fetch(ids=[first_chunk_id])
+                if res and res.get("vectors"):
+                    logger.info("Article already exists in Pinecone: %s", article["title"][:50])
+                    continue
+            except Exception as e:
+                logger.warning("Pinecone fetch failed, proceeding with ingestion: %s", e)
 
             chunks = self.chunk_text(article["content"])
+            logger.info("Embedding %d chunks for: %s", len(chunks), article["title"][:50])
 
             for chunk_idx, chunk in enumerate(chunks):
-                embedding = await asyncio.to_thread(self._embed_sync, chunk)
-                chunk_id = f"{content_hash}_{chunk_idx}"
-                metadata = {
-                    "source_url": article["source_url"],
-                    "source_name": article["source_name"],
-                    "title": article["title"],
-                    "published_date": article["published_date"].isoformat(),
-                    "chunk_index": chunk_idx,
-                    "total_chunks": len(chunks),
-                    "chunk_text": chunk,
-                }
+                try:
+                    embedding = await asyncio.to_thread(self._embed_sync, chunk)
+                    chunk_id = f"{content_hash}_{chunk_idx}"
+                    metadata = {
+                        "source_url": article["source_url"],
+                        "source_name": article["source_name"],
+                        "title": article["title"],
+                        "published_date": article["published_date"].isoformat(),
+                        "chunk_index": chunk_idx,
+                        "total_chunks": len(chunks),
+                        "chunk_text": chunk,
+                    }
 
-                vectors_to_upsert.append((chunk_id, embedding, metadata))
+                    vectors_to_upsert.append((chunk_id, embedding, metadata))
+                    
+                    # Add a small delay to avoid hitting rate limits too fast
+                    await asyncio.sleep(0.5) 
+                except Exception as e:
+                    logger.error("Failed to embed chunk %d: %s", chunk_idx, e)
+                    break # Skip the rest of this article if we hit quota
 
-            self.processed_hashes.add(content_hash)
             logger.info("Processed: %s (%d chunks)", article["title"][:50], len(chunks))
 
         if vectors_to_upsert:
             try:
-                self.index.upsert(vectors=vectors_to_upsert)
+                # Upsert in smaller batches to be safer
+                for i in range(0, len(vectors_to_upsert), 50):
+                    batch = vectors_to_upsert[i:i+50]
+                    self.index.upsert(vectors=batch)
                 logger.info("Upserted %d vectors to Pinecone", len(vectors_to_upsert))
             except Exception as exc:
                 logger.error("Failed to upsert to Pinecone: %s", exc)
@@ -172,6 +189,9 @@ class NewsIngester:
         try:
             logger.info("Starting ingestion cycle")
             articles = await self.fetch_rss_feeds()
+            
+            # Quota preservation: Limit to top 15 news articles per morning
+            articles = articles[:15]
             
             # Deeper ingestion: Scrape full content for each article
             processed_articles = []
