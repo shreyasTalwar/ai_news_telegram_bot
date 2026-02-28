@@ -22,8 +22,8 @@ class RAGPipeline:
         self.pc = Pinecone(api_key=Config.PINECONE_API_KEY)
         self.index = self.pc.Index(Config.PINECONE_INDEX)
         
-        # Using Gemini 2.5 Flash for generation
-        self.generation_model_id = "gemini-2.5-flash"
+        # Using Gemini 1.5 Flash - it's stable and fast
+        self.generation_model_id = "gemini-1.5-flash"
         self.user_context = {}
         logger.info("RAG Pipeline initialized using %s", self.generation_model_id)
 
@@ -65,7 +65,7 @@ class RAGPipeline:
 
             search_results = []
             for match in results.matches:
-                if match.score < 0.3:  # Slightly lower threshold to get more context
+                if match.score < 0.3:  # Lowered threshold to ensure context is found
                     continue
 
                 metadata = match.metadata or {}
@@ -86,14 +86,21 @@ class RAGPipeline:
             return []
 
     def _generate_sync(self, prompt: str) -> str:
-        """Call Google AI v1beta generation API directly over HTTP."""
+        """Call Google AI v1beta generation API directly over HTTP with the correct structure."""
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{self.generation_model_id}:generateContent?key={Config.GEMINI_API_KEY}"
         )
         
+        # Correctly structured payload according to the Gemini API spec
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ],
             "safetySettings": [
                 {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                 {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -112,12 +119,12 @@ class RAGPipeline:
         if "candidates" not in data or not data["candidates"]:
             if "promptFeedback" in data:
                 logger.warning("Prompt feedback blocked: %s", data["promptFeedback"])
-            return "I'm sorry, I couldn't generate a summary from those news articles."
+            return "I couldn't summarize the news from those sources."
             
         candidate = data["candidates"][0]
         if "content" not in candidate or "parts" not in candidate["content"]:
             logger.warning("No content in response candidate: %s", candidate)
-            return "I'm sorry, I couldn't generate a summary from those news articles."
+            return "I couldn't summarize the news from those sources."
             
         return candidate["content"]["parts"][0]["text"]
 
@@ -128,7 +135,7 @@ class RAGPipeline:
             except Exception as exc:
                 logger.error("Generation error on attempt %d: %s", attempt + 1, str(exc))
                 if attempt == Config.MAX_RETRIES - 1:
-                    return "I'm having trouble generating a response. Please try again in a moment."
+                    return f"I encountered an error generating the summary. (Ref: {str(exc)[:50]})"
 
                 backoff = Config.INITIAL_BACKOFF_SECONDS * (2**attempt)
                 await asyncio.sleep(backoff)
@@ -164,8 +171,7 @@ class RAGPipeline:
                 "GUIDELINES:\n"
                 "1. Summarize the key points from the provided news snippets.\n"
                 "2. Focus on answering the user's specific question directly.\n"
-                "3. Use a professional and informative tone.\n"
-                "4. If the context does not contain enough information, provide a general summary of what IS available and mention the limitation.\n\n"
+                "3. Use a professional and informative tone.\n\n"
                 f"NEWS CONTEXT:\n{context}\n\n"
                 f"CONVERSATION HISTORY:\n{history_text}\n\n"
                 f"USER QUESTION:\n{question}\n\n"
