@@ -86,9 +86,9 @@ class RAGPipeline:
             return []
 
     def _generate_sync(self, prompt: str) -> str:
-        """Call Google AI v1beta generation API directly over HTTP with the correct structure."""
+        """Call Google AI v1 generation API directly over HTTP with the correct structure."""
         url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"https://generativelanguage.googleapis.com/v1/models/"
             f"{self.generation_model_id}:generateContent?key={Config.GEMINI_API_KEY}"
         )
         
